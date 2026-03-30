@@ -1,0 +1,22 @@
+# Core dependencies
+deepagents>=0.4.12
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-openai>=0.3.0
+langgraph>=0.2.0
+
+# Storage and checkpointing
+langgraph-checkpoint>=2.0.0
+
+# Environment management
+python-dotenv>=1.0.0
+
+# PostgreSQL checkpointer (default)
+langgraph-checkpoint-postgres>=2.0.0
+psycopg-binary>=3.0.0  # Required for PostgreSQL support
+
+# Optional: SQLite checkpointer (local file storage - no server needed)
+# langgraph-checkpoint-sqlite>=2.0.0
+
+# Optional: LangSmith tracing
+# langsmith>=0.1.0
