@@ -8,6 +8,10 @@ from typing import Literal, Optional
 from pathlib import Path
 
 
+# Workspace root for file operations (matches agent.py WORKSPACE_ROOT)
+WORKSPACE_ROOT = Path(__file__).parent / "workspace"
+
+
 def get_criterion_reference(
     year: Literal["Year 1", "Year 3", "Year 5", "year 1", "year 3", "year 5", "1", "3", "5"],
     criterion: Literal["A", "B", "C", "D"] = "C"
@@ -489,36 +493,41 @@ def search_exa_structured(
 
 
 
-def _resolve_project_path(path: str, project_root: Path) -> Path:
+def _resolve_workspace_path(path: str) -> Path:
     """
-    Resolve a user-provided path relative to the project root.
+    Resolve a user-provided path relative to the workspace root.
     
-    Handles paths that may:
-    - Start with '/' but be intended as relative to project root
-    - Be relative paths like "workspace/file.txt"
-    - Already be absolute paths within the project
+    This follows the same logic as FilesystemBackend._resolve_path() in virtual_mode:
+    - Virtual paths starting with '/' are resolved under WORKSPACE_ROOT
+    - Relative paths are also resolved under WORKSPACE_ROOT
+    - Path traversal ('..', '~') is blocked
     
     Args:
-        path: The user-provided path string
-        project_root: The project root directory
+        path: The user-provided path string (e.g., '/drafts/file.docx' or 'drafts/file.docx')
         
     Returns:
-        Resolved Path object
+        Resolved absolute Path object
+        
+    Raises:
+        ValueError: If path traversal is attempted
     """
-    file_path = Path(path)
+    # Block path traversal attempts (same as FilesystemBackend)
+    if ".." in path or path.startswith("~"):
+        raise ValueError("Path traversal not allowed")
     
-    # If path starts with '/' but doesn't exist as absolute, treat as relative to project
-    if path.startswith('/'):
-        # First try as absolute (rare, but possible)
-        if file_path.exists():
-            return file_path
-        # Strip leading '/' and treat as relative to project root
-        file_path = project_root / path.lstrip('/')
-    elif not file_path.is_absolute():
-        # Standard relative path - prepend project root
-        file_path = project_root / file_path
+    # Normalize to virtual path (ensure it starts with /)
+    vpath = path if path.startswith("/") else "/" + path
     
-    return file_path
+    # Resolve under workspace root (strip leading / and join with WORKSPACE_ROOT)
+    full_path = (WORKSPACE_ROOT / vpath.lstrip("/")).resolve()
+    
+    # Ensure the resolved path stays within WORKSPACE_ROOT (security check)
+    try:
+        full_path.relative_to(WORKSPACE_ROOT.resolve())
+    except ValueError as e:
+        raise ValueError(f"Path outside workspace directory: {path}") from e
+    
+    return full_path
 
 
 def read_docx(path: str) -> str:
@@ -529,17 +538,18 @@ def read_docx(path: str) -> str:
     and tables, preserving the document structure.
     
     Args:
-        path: Path to the .docx file, relative to project root.
+        path: Path to the .docx file, relative to workspace root.
               Can start with or without leading '/'.
-              Examples: "workspace/drafts/document.docx"
-                       "/workspace/drafts/document.docx" (both work the same)
+              Virtual paths like '/drafts/file.docx' are resolved under workspace/.
+              Examples: "drafts/document.docx"
+                       "/drafts/document.docx" (both resolve to workspace/drafts/)
     
     Returns:
         The extracted text content from the Word document.
     
     Example:
-        read_docx("workspace/drafts/rubric.docx")
-        read_docx("/workspace/drafts/rubric.docx")
+        read_docx("drafts/rubric.docx")
+        read_docx("/drafts/rubric.docx")
     """
     try:
         from docx import Document
@@ -547,12 +557,8 @@ def read_docx(path: str) -> str:
         return "Error: python-docx library not installed. Run: pip install python-docx"
     
     try:
-        # Get project root (directory containing this file)
-        project_root = Path(__file__).parent
-        
-        # Resolve the path
-        file_path = _resolve_project_path(path, project_root)
-        file_path = file_path.resolve()
+        # Resolve the path using workspace-relative logic (matches FilesystemBackend)
+        file_path = _resolve_workspace_path(path)
         
         # Check if file exists
         if not file_path.exists():
